@@ -1,6 +1,8 @@
 import os
 import requests
 
+from kagebunshin.common.utils import extract_graphdb_error
+
 GRAPHDB_URL = os.getenv('GRAPHDB_URL')
 REPO_NAME = "kagebunshin-graph"
 
@@ -28,4 +30,12 @@ def run_sparql(query: str):
         response.raise_for_status()
         return response.json()
     except Exception as e:
-        return {"error": str(e)}
+        try:
+            raw_error = e.response.text
+            error_detail = extract_graphdb_error(raw_error)
+        except:
+            error_detail = str(e)
+
+        return {
+            "error": error_detail,
+        }

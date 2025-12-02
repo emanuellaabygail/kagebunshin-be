@@ -35,3 +35,28 @@ def custom_exception_handler(exc, context):
         message='Terjadi kesalahan internal.',
         data={}
     )
+
+def extract_graphdb_error(text: str) -> str:
+    if not text:
+        return "Unknown SPARQL error."
+
+    # kalau error HTML dari GraphDB
+    if "<pre>" in text.lower():
+        try:
+            text = text.split("<pre>")[1].split("</pre>")[0].strip()
+        except:
+            pass
+
+    # ambil baris yang mengandung MALFORMED / Lexical / Parse Error
+    important_lines = []
+    for line in text.splitlines():
+        clean = line.strip()
+        if any(keyword in clean.upper() for keyword in ["MALFORMED", "LEXICAL", "PARSE", "ERROR"]):
+            important_lines.append(clean)
+
+    if important_lines:
+        return " ".join(important_lines)
+
+    # fallback: ambil 2 baris pertama yang ada isinya
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    return " ".join(lines[:2]) if lines else text
