@@ -4,11 +4,31 @@ from kagebunshin.common.utils import api_response
 from api.sparql_client import run_sparql
 from api.views import sparql_to_json
 
-FORBIDDEN_KEYWORDS = [
-    "INSERT", "DELETE", "UPDATE", "LOAD",
-    "CREATE", "DROP", "CLEAR", "ADD",
-    "MOVE", "COPY", "ALTER"
+import re
+
+FORBIDDEN_PATTERNS = [
+    r'^\s*INSERT\b',
+    r'^\s*DELETE\b',
+    r'^\s*UPDATE\b',
+    r'^\s*LOAD\b',
+    r'^\s*CREATE\b',
+    r'^\s*DROP\b',
+    r'^\s*CLEAR\b',
+    r'^\s*ADD\b',
+    r'^\s*MOVE\b',
+    r'^\s*COPY\b',
+    r'^\s*ALTER\b',
 ]
+
+def find_forbidden_keyword(query: str):
+    lines = query.splitlines()
+    for line in lines:
+        for pattern in FORBIDDEN_PATTERNS:
+            if re.match(pattern, line, flags=re.IGNORECASE):
+                # ambil keyword dari pattern
+                keyword = pattern.strip(r'^\s*\b').split('\\b')[0].strip()
+                return keyword.upper()
+    return None
 
 def normalize_query(query: str) -> str:
     return "\n".join(line.rstrip() for line in query.strip().splitlines())
@@ -38,9 +58,9 @@ def validate_query(query: str):
     normalized = normalize_query(query)
     upper_q = normalized.upper()
 
-    for keyword in FORBIDDEN_KEYWORDS:
-        if keyword in upper_q:
-            return f"Query mengandung operasi yang dilarang yaitu {keyword}"
+    forbidden = find_forbidden_keyword(normalized)
+    if forbidden:
+        return f"Query mengandung operasi yang dilarang yaitu {forbidden}"
 
     if not is_select_query(normalized):
         return "Hanya query SELECT yang diperbolehkan."
