@@ -4,6 +4,7 @@ from api.sparql_client import run_sparql
 from api.views import sparql_to_json
 from kagebunshin.common.utils import api_response
 from difflib import SequenceMatcher
+import re
 
 # pakai run_sparql dari api/sparql_client.py untuk ambil data dari GraphDB
 # pakai sparql_to_json dari api/views.py untuk ratain (mempermudah) hasil SPARQL ke JSON biasa
@@ -27,8 +28,8 @@ def get_data(request):
     data = sparql_to_json(result)
     return api_response(status.HTTP_200_OK, "Berhasil ambil data", data)
 
-def clean_genres(genres_str):
-    return [g.strip() for g in genres_str.split(",") if g.strip()]
+def str_to_list(str):
+    return [s.strip() for s in str.split(",") if s.strip()]
 
 @api_view(['GET'])
 def get_anime(request):
@@ -61,7 +62,7 @@ def get_anime(request):
     data = sparql_to_json(result)
     for item in data:
         if "genres" in item:
-            item["genres"] = clean_genres(item["genres"])
+            item["genres"] = str_to_list(item["genres"])
 
     return api_response(status.HTTP_200_OK, "Berhasil ambil data", data)
 
@@ -115,11 +116,8 @@ def get_anime_by_genre(request):
     data = sparql_to_json(result)
     for item in data:
         if "genres" in item:
-            item["genres"] = clean_genres(item["genres"])
+            item["genres"] = str_to_list(item["genres"])
     return api_response(status.HTTP_200_OK, "Berhasil ambil data", data)
-
-def clean_anime(anime_str):
-    return [a.strip() for a in anime_str.split(",") if a.strip()]
 
 @api_view(['GET'])
 def get_character(request):
@@ -145,7 +143,7 @@ def get_character(request):
     data = sparql_to_json(result)
     for item in data:
       if "animeList" in item:
-          item["animeList"] = clean_anime(item["animeList"])
+          item["animeList"] = str_to_list(item["animeList"])
     return api_response(status.HTTP_200_OK, "Berhasil ambil data", data)
 
 def rank_results(results, query, field):
@@ -164,9 +162,7 @@ def rank_results(results, query, field):
     ranked_results.sort(key=lambda x: x['score'], reverse=True)
     return ranked_results
 
-def sparql_anime(search):
-    filter_title = f'FILTER(CONTAINS(LCASE(?title), LCASE("{search}")))'
-
+def sparql_anime(filter_title):
     return f"""
     PREFIX v: <http://kagebunshin.org/vocab/>
 
@@ -187,9 +183,7 @@ def sparql_anime(search):
     GROUP BY ?anime ?image ?title ?year
     """
 
-def sparql_anime_by_genre(search, genre):
-    filter_title = f'FILTER(CONTAINS(LCASE(?title), LCASE("{search}")))'
-
+def sparql_anime_by_genre(filter_title, genre):
     filter_genre = f"""
     FILTER EXISTS {{
       ?anime v:hasGenre ?g .
@@ -223,10 +217,33 @@ def query_anime(request):
     search = request.GET.get("search", "")
     genre = request.GET.get("genre", "")
 
+    # Token search
+    normalized = re.sub(r"[^a-zA-Z0-9 ]+", " ", search.lower()).strip()
+    tokens = [t for t in normalized.split() if t]
+
+    # No space search
+    search_no_space = re.sub(r"[^a-zA-Z0-9]+", "", search.lower()).strip()
+
+    token_filters = "\n".join(
+        [f'FILTER(CONTAINS(REPLACE(LCASE(?title), "[^a-z0-9]", ""), "{token}"))'
+         for token in tokens]
+    ) if tokens else ""
+
+    exact_filter = ""
+    if search_no_space and " " not in search:
+        exact_filter = f'''
+        FILTER(CONTAINS(
+            REPLACE(LCASE(?title), "[^a-z0-9]", ""), 
+            "{search_no_space}"
+        ))
+        '''
+    
+    all_filters = token_filters + "\n" + exact_filter
+
     if genre:
-      query = sparql_anime_by_genre(search, genre)
+      query = sparql_anime_by_genre(all_filters, genre)
     else:
-      query = sparql_anime(search)
+      query = sparql_anime(all_filters)
 
     result = run_sparql(query)
 
@@ -249,6 +266,29 @@ def query_anime(request):
 def query_character(request):
     search = request.GET.get("search", "")
 
+    # Token search
+    normalized = re.sub(r"[^a-zA-Z0-9 ]+", " ", search.lower()).strip()
+    tokens = [t for t in normalized.split() if t]
+
+    # No space search
+    search_no_space = re.sub(r"[^a-zA-Z0-9]+", "", search.lower()).strip()
+
+    token_filters = "\n".join(
+        [f'FILTER(CONTAINS(REPLACE(LCASE(?fullName), "[^a-z0-9]", ""), "{token}"))'
+         for token in tokens]
+    ) if tokens else ""
+
+    exact_filter = ""
+    if search_no_space and " " not in search:
+        exact_filter = f'''
+        FILTER(CONTAINS(
+            REPLACE(LCASE(?fullName), "[^a-z0-9]", ""), 
+            "{search_no_space}"
+        ))
+        '''
+
+    all_filters = token_filters + "\n" + exact_filter
+
     query = f"""
     PREFIX v: <http://kagebunshin.org/vocab/>
     PREFIX foaf: <http://xmlns.com/foaf/0.1/>
@@ -258,11 +298,12 @@ def query_character(request):
       ?anime v:hasCharacter ?char ;
              v:hasTitle ?title .
 
-      ?char foaf:name ?name .
+      ?char foaf:name ?name ;
+            v:hasFullName ?fullName .
 
-      FILTER(CONTAINS(LCASE(?name), LCASE("{search}")))
+      {all_filters}
     }}
-    GROUP BY ?char ?name
+    GROUP BY ?char ?name ?fullName
     """
 
     result = run_sparql(query)
@@ -272,8 +313,9 @@ def query_character(request):
     
     data = sparql_to_json(result)
     data = rank_results(data, search, "name")
+
     for item in data:
-      if "animeList" in item:
-          item["animeList"] = clean_anime(item["animeList"])
+        if "animeList" in item:
+            item["animeList"] = str_to_list(item["animeList"])
 
     return api_response(status.HTTP_200_OK, "Berhasil ambil data", data)
