@@ -455,13 +455,15 @@ def get_anime_by_pk(request):
     query = f"""
     PREFIX v: <http://kagebunshin.org/vocab/>
     PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+    PREFIX foaf: <http://xmlns.com/foaf/0.1/>
 
-    SELECT ?anime ?title ?desc ?image ?type ?episodes ?status ?premiered ?duration ?rating ?score ?rank ?popularity ?members ?favorites ?source ?studio
-           (GROUP_CONCAT(DISTINCT ?genre; separator=",") AS ?genres)
-           (GROUP_CONCAT(DISTINCT ?theme; separator=",") AS ?themes)
-           (GROUP_CONCAT(DISTINCT ?producer; separator=",") AS ?producers)
-           (GROUP_CONCAT(DISTINCT ?char; separator=",") AS ?characters)
-           ?year ?season
+        SELECT ?anime ?title ?desc ?image ?type ?episodes ?status ?premiered ?duration ?rating ?score ?rank ?popularity ?members ?favorites ?source ?studio
+          (GROUP_CONCAT(DISTINCT ?genre; separator=",") AS ?genres)
+          (GROUP_CONCAT(DISTINCT ?theme; separator=",") AS ?themes)
+          (GROUP_CONCAT(DISTINCT ?producer; separator=",") AS ?producers)
+          (GROUP_CONCAT(DISTINCT STR(?char); separator=",") AS ?charactersUri)
+          (GROUP_CONCAT(DISTINCT COALESCE(?charName, ""); separator=",") AS ?charactersName)
+          ?year ?season
     WHERE {{
       VALUES ?anime {{ <{uri}> }}
 
@@ -485,6 +487,7 @@ def get_anime_by_pk(request):
       OPTIONAL {{ ?anime v:hasGenre ?genre . }}
       OPTIONAL {{ ?anime v:hasTheme ?theme . }}
       OPTIONAL {{ ?anime v:hasCharacter ?char . }}
+      OPTIONAL {{ ?char v:hasFullName ?charName . }}
 
       OPTIONAL {{
         ?anime v:isReleased ?releaseNode .
@@ -530,7 +533,8 @@ def get_anime_by_pk(request):
         "producers": split_field(item.get("producers")),
         "genres": split_field(item.get("genres")),
         "themes": split_field(item.get("themes")),
-        "characters": split_field(item.get("characters")),
+        "charactersUri": split_field(item.get("charactersUri")),
+        "charactersName": split_field(item.get("charactersName")),
         "releasedYear": item.get("year"),
         "releasedSeason": item.get("season"),
     }
@@ -625,14 +629,12 @@ def get_studio_wd_by_name(request, pk: str = None):
     WHERE {{
       ?studio rdfs:label "{studio_name_escaped}"@en .
 
-      # --- MENGAMBIL DATA ---
       OPTIONAL {{ ?studio wdt:P800 ?notableWork . ?notableWork rdfs:label ?notableWorkLabel FILTER(LANG(?notableWorkLabel) = "en") }}
       OPTIONAL {{ ?studio wdt:P112 ?foundedBy . ?foundedBy rdfs:label ?foundedByLabel FILTER(LANG(?foundedByLabel) = "en") }}
       OPTIONAL {{ ?studio wdt:P17 ?country . ?country rdfs:label ?countryLabel FILTER(LANG(?countryLabel) = "en") }}
       OPTIONAL {{ ?studio wdt:P856 ?officialWebsite . }}
       OPTIONAL {{ ?studio wdt:P154 ?logo . }}
 
-      # --- LABEL SERVICE ---
       SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en".
         ?studio rdfs:label ?studioLabel .
       }}
@@ -674,7 +676,7 @@ def get_studio_wd_by_name(request, pk: str = None):
       'name': read(b, 'studioLabel') or studio_name,
       'notableWorks': [s for s in notable_raw.split('||') if s],
       'founders': [s for s in founders_raw.split('||') if s],
-      'countries': read(b, 'countryLabel'),
+      'originCountry': read(b, 'countryLabel'),
       'officialWebsite': read(b, 'officialWebsite'),
       'logo': read(b, 'logo'),
     }
