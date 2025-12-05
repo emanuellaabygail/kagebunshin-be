@@ -29,7 +29,7 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = [
-  "https://kagebunshin-be.up.railway.app/",
+  "kagebunshin-be.up.railway.app",
   "localhost",
   "127.0.0.1"
 ]
